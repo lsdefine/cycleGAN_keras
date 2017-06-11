@@ -19,7 +19,7 @@ from model_256 import BuildGenerator, BuildDiscriminator
 # params
 nb_epochs = 200
 batch_size = 1
-p_lambda = 20
+p_lambda = 10
 
 channels = 3
 imgsize = 256
@@ -57,16 +57,25 @@ modelDF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 modelG.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 modelF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 
+imageReal = Input(shape=(imgsize,imgsize,channels))
+imageFake = Input(shape=(imgsize,imgsize,channels))
+DGReal, DGFake = modelDG(imageReal), modelDG(imageFake)
+combDG = Model(inputs=[imageReal, imageFake], outputs=[DGReal, DGFake])
+combDG.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
+
+imageReal = Input(shape=(imgsize,imgsize,channels))
+imageFake = Input(shape=(imgsize,imgsize,channels))
+DFReal, DFFake = modelDF(imageReal), modelDF(imageFake)
+combDF = Model(inputs=[imageReal, imageFake], outputs=[DFReal, DFFake])
+combDF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
+
 imageA = Input(shape=(imgsize,imgsize,channels))
 imageB = Input(shape=(imgsize,imgsize,channels))
 modelDG.trainable = False
 modelDF.trainable = False
-fakeB = modelG(imageA)
-fakeA = modelF(imageB)
-disG = modelDG(fakeB)
-disF = modelDF(fakeA)
-cycGF = modelF(fakeB)
-cycFG = modelG(fakeA)
+fakeB, fakeA = modelG(imageA), modelF(imageB)
+disG, disF = modelDG(fakeB), modelDF(fakeA)
+cycGF, cycFG = modelF(fakeB), modelG(fakeA)
 combM = Model(inputs=[imageA, imageB], outputs=[disG, disF, cycGF, cycFG])
 combM.compile(optimizer=Adam(adam_lr, adam_beta_1), loss=['mse','mse','mae','mae'], loss_weights=[1, 1, p_lambda, p_lambda])
 
@@ -115,27 +124,23 @@ for epoch in range(nb_epochs):
 		generateG = modelG.predict_on_batch(A_image_batch)
 		recordG.append(generateG)
 		if len(recordG) > 100: recordG = recordG[-50:]
-		lossDG = modelDG.train_on_batch(B_image_batch, ones)
-		lossDG += modelDG.train_on_batch(random.choice(recordG), zeros)
-		lossDG *= 0.5
+		lossDG = combDG.train_on_batch([B_image_batch, random.choice(recordG)], [ones, zeros])[0]
 
 		generateF = modelF.predict_on_batch(B_image_batch)
 		recordF.append(generateF)
 		if len(recordF) > 100: recordF = recordF[-50:]
-		lossDF = modelDF.train_on_batch(A_image_batch, ones)
-		lossDF += modelDF.train_on_batch(random.choice(recordF), zeros)
-		lossDF *= 0.5
+		lossDF = combDF.train_on_batch([A_image_batch, random.choice(recordF)], [ones, zeros])[0]
 
 		for _ in range(1):
-			A_image_batch, B_image_batch = next(genA), next(genB)
+			#A_image_batch, B_image_batch = next(genA), next(genB)
 			_, lossG, lossF, losscycGF, losscycFG = combM.train_on_batch([A_image_batch, B_image_batch], [ones, ones, A_image_batch, B_image_batch])
 
 		progress_bar.update(index+1, values=[('DG',lossDG),('G',lossG),('DF',lossDF),('F',lossF),('cycGF',losscycGF),('cycFG',losscycFG)])
 
 	print('Testing for epoch {}:'.format(epoch + 1))
 
-	modelG.save_weights( os.path.join(modeldir, 'modelG.h5' ),  True)
-	modelF.save_weights( os.path.join(modeldir, 'modelF.h5' ),  True)
+	modelG.save_weights( os.path.join(modeldir, 'modelG.h5' ), True)
+	modelF.save_weights( os.path.join(modeldir, 'modelF.h5' ), True)
 	modelDG.save_weights(os.path.join(modeldir, 'modelDG.h5'), True)
 	modelDF.save_weights(os.path.join(modeldir, 'modelDF.h5'), True)
 	
