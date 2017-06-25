@@ -14,17 +14,16 @@ time.clock()
 np.random.seed(1333)
 K.set_image_dim_ordering('tf')
 
-from model_256 import BuildGenerator, BuildDiscriminator
+from model import BuildGenerator, BuildDiscriminator
 
 # params
 nb_epochs = 200
 batch_size = 1
 p_lambda = 10
 
-channels = 3
 imgsize = 256
 
-adam_lr = 0.00001
+adam_lr = 0.000005
 adam_beta_1 = 0.5
 
 imgdirA = '/mnt/smb25/ImageNet/horse2zebra/trainA'
@@ -36,10 +35,10 @@ modeldir = 'data/'
 testimgdir = 'images/'
 
 
-modelG = BuildGenerator()
-modelF = BuildGenerator()
-modelDG = BuildDiscriminator()
-modelDF = BuildDiscriminator()
+modelG = BuildGenerator(Input(shape=(imgsize,imgsize,3)))
+modelF = BuildGenerator(Input(shape=(imgsize,imgsize,3)))
+modelDG = BuildDiscriminator(Input(shape=(imgsize,imgsize,3)))
+modelDF = BuildDiscriminator(Input(shape=(imgsize,imgsize,3)))
 
 modelG.summary()
 modelDG.summary()
@@ -57,20 +56,20 @@ modelDF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 modelG.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 modelF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 
-imageReal = Input(shape=(imgsize,imgsize,channels))
-imageFake = Input(shape=(imgsize,imgsize,channels))
+imageReal = Input(shape=(imgsize,imgsize,3))
+imageFake = Input(shape=(imgsize,imgsize,3))
 DGReal, DGFake = modelDG(imageReal), modelDG(imageFake)
 combDG = Model(inputs=[imageReal, imageFake], outputs=[DGReal, DGFake])
 combDG.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 
-imageReal = Input(shape=(imgsize,imgsize,channels))
-imageFake = Input(shape=(imgsize,imgsize,channels))
+imageReal = Input(shape=(imgsize,imgsize,3))
+imageFake = Input(shape=(imgsize,imgsize,3))
 DFReal, DFFake = modelDF(imageReal), modelDF(imageFake)
 combDF = Model(inputs=[imageReal, imageFake], outputs=[DFReal, DFFake])
 combDF.compile(optimizer=Adam(adam_lr, adam_beta_1), loss='mse')
 
-imageA = Input(shape=(imgsize,imgsize,channels))
-imageB = Input(shape=(imgsize,imgsize,channels))
+imageA = Input(shape=(imgsize,imgsize,3))
+imageB = Input(shape=(imgsize,imgsize,3))
 modelDG.trainable = False
 modelDF.trainable = False
 fakeB, fakeA = modelG(imageA), modelF(imageB)
@@ -91,7 +90,7 @@ def ImgGenerator(imgdir):
 # if the memory is enough for all imgs ...
 def ImgGeneratorS(imgdir):
 	imglst = [os.path.join(imgdir, x) for x in os.listdir(imgdir)]
-	X = np.zeros((len(imglst), imgsize, imgsize, channels))
+	X = np.zeros((len(imglst), imgsize, imgsize, 3))
 	for i, fn in enumerate(imglst):
 		if i % 20 == 0: print('%d/%d' % (i, len(imglst)))
 		img = image.load_img(fn, target_size=(imgsize, imgsize))
@@ -108,8 +107,8 @@ testA = ImgGenerator(testimgdirA)
 testB = ImgGenerator(testimgdirB)
 
 nb_batches = len(os.listdir(imgdirA)) // batch_size
-ones = np.ones(   (batch_size, imgsize//8, imgsize//8, 1) )
-zeros = np.zeros( (batch_size, imgsize//8, imgsize//8, 1) )
+ones = np.ones(   (batch_size, imgsize//16, imgsize//16, 1) )
+zeros = np.zeros( (batch_size, imgsize//16, imgsize//16, 1) )
 
 
 recordG, recordF = [], []
@@ -132,7 +131,7 @@ for epoch in range(nb_epochs):
 		lossDF = combDF.train_on_batch([A_image_batch, random.choice(recordF)], [ones, zeros])[0]
 
 		for _ in range(1):
-			#A_image_batch, B_image_batch = next(genA), next(genB)
+			A_image_batch, B_image_batch = next(genA), next(genB)
 			_, lossG, lossF, losscycGF, losscycFG = combM.train_on_batch([A_image_batch, B_image_batch], [ones, ones, A_image_batch, B_image_batch])
 
 		progress_bar.update(index+1, values=[('DG',lossDG),('G',lossG),('DF',lossDF),('F',lossF),('cycGF',losscycGF),('cycFG',losscycFG)])
@@ -148,10 +147,10 @@ for epoch in range(nb_epochs):
 	tB = np.concatenate( [next(testB) for x in range(4)], axis=0 ) 
 	gG = modelG.predict(tA, batch_size=1)
 	gF = modelF.predict(tB, batch_size=1)
-	tA = tA.reshape(-1,imgsize,channels)
-	tB = tB.reshape(-1,imgsize,channels)
-	gG = gG.reshape(-1,imgsize,channels)
-	gF = gF.reshape(-1,imgsize,channels)
+	tA = tA.reshape(-1,imgsize,3)
+	tB = tB.reshape(-1,imgsize,3)
+	gG = gG.reshape(-1,imgsize,3)
+	gF = gF.reshape(-1,imgsize,3)
 	img = np.concatenate([tA, gG, tB, gF], axis=1)
 	img = (img * 127.5 + 127.5).astype(np.uint8)  
 	Image.fromarray(img).save(os.path.join(testimgdir, 'plot_epoch_{0:03d}_generated.png'.format(epoch)))
